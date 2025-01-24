@@ -59,7 +59,7 @@ const queryRunner = async (runnerId: number) => {
       `, { id }, { timeout: TIMEOUT })
       console.log(`Query Success. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${id}. Entity supply chain count ${count}. Result count ${result.records.length}`)
     } catch (err) {
-      console.error(`Query Error. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${id}. Entity supply chain count ${count}. `, err)
+      console.error(`Query Error. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${id}. Entity supply chain count ${count}. ${err}`)
     } finally {
       await session.close()
     }
