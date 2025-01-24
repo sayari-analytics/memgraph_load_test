@@ -21,7 +21,7 @@ var (
 	HOST                     = getEnv("HOST", "localhost")
 	PORT                     = getEnv("PORT", "7687")
 	CONCURRENCY, _           = strconv.Atoi(getEnv("CONCURRENCY", "18"))
-	TIMEOUT, _               = strconv.Atoi(getEnv("TIMEOUT", "15000"))
+	TIMEOUT, _               = strconv.Atoi(getEnv("TIMEOUT", "15"))
 	MIN_SUPPLY_CHAIN_SIZE, _ = strconv.Atoi(getEnv("MIN_SUPPLY_CHAIN_SIZE", "5000"))
 	entities                 = readCSV()
 	entityIdx                = 0
@@ -99,7 +99,7 @@ func queryRunner(driver neo4j.Driver, runnerId int) {
 			))
 			RETURN b, c, d, e, collect(r4) AS r4 LIMIT 20000
 			QUERY MEMORY LIMIT 5120MB;
-		`, map[string]interface{}{"id": id})
+		`, map[string]interface{}{"id": id}, neo4j.WithTxTimeout(time.Duration(TIMEOUT)*time.Second))
 
 		if err != nil {
 			log.Printf("Query Error. Time %dms. Runner id %d. Entity id %s. Entity supply chain count %d. %s", time.Since(startTime).Milliseconds(), runnerId, id, count, err)
@@ -110,7 +110,9 @@ func queryRunner(driver neo4j.Driver, runnerId int) {
 }
 
 func main() {
-	driver, err := neo4j.NewDriver(fmt.Sprintf("bolt://%s:%s", HOST, PORT), neo4j.NoAuth())
+	driver, err := neo4j.NewDriver(fmt.Sprintf("bolt://%s:%s", HOST, PORT), neo4j.NoAuth(), func(config *neo4j.Config) {
+		config.MaxConnectionLifetime = time.Duration(60) * time.Second
+	})
 	if err != nil {
 		log.Fatalf("Failed to create driver: %s", err)
 	}
