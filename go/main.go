@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
@@ -13,13 +14,16 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j"
 )
 
+//go:embed data-go-copy.csv
+var dataCSV string
+
 var (
 	HOST                     = getEnv("HOST", "localhost")
 	PORT                     = getEnv("PORT", "7687")
 	CONCURRENCY, _           = strconv.Atoi(getEnv("CONCURRENCY", "18"))
 	TIMEOUT, _               = strconv.Atoi(getEnv("TIMEOUT", "15000"))
 	MIN_SUPPLY_CHAIN_SIZE, _ = strconv.Atoi(getEnv("MIN_SUPPLY_CHAIN_SIZE", "5000"))
-	entities                 = readCSV("../data.csv")
+	entities                 = readCSV()
 	entityIdx                = 0
 	mutex                    sync.Mutex
 )
@@ -31,15 +35,9 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func readCSV(filePath string) [][2]interface{} {
-	file, err := os.Open(filePath)
-	if err != nil {
-		log.Fatalf("Failed to open file: %s", err)
-	}
-	defer file.Close()
-
+func readCSV() [][2]interface{} {
 	var entities [][2]interface{}
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(strings.NewReader(dataCSV))
 	for scanner.Scan() {
 		line := scanner.Text()
 		parts := strings.Split(line, ",")
