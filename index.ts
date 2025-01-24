@@ -5,7 +5,7 @@ const HOST = process.env.HOST ?? 'localhost'
 const PORT = process.env.PORT ?? '7687'
 const CONCURRENCY = process.env.CONCURRENCY !== undefined ? parseInt(process.env.CONCURRENCY, 10) : 18
 const TIMEOUT = process.env.TIMEOUT !== undefined ? parseInt(process.env.TIMEOUT) : 15000
-const MIN_SUPPLY_CHAIN_SIZE = process.env.MIN_SUPPLY_CHAIN_SIZE !== undefined ? parseInt(process.env.MIN_SUPPLY_CHAIN_SIZE, 10) : 5000
+const MIN_SUPPLY_CHAIN_SIZE = process.env.MIN_SUPPLY_CHAIN_SIZE !== undefined ? parseInt(process.env.MIN_SUPPLY_CHAIN_SIZE, 10) : 2000
 
 const driver = neo4j.driver(
   `bolt://${HOST}:${PORT}`,
@@ -57,9 +57,9 @@ const queryRunner = async (runnerId: number) => {
         RETURN b, c, d, e, collect(r4) AS r4 LIMIT 20000
         QUERY MEMORY LIMIT 5120MB;
       `, { id }, { timeout: TIMEOUT })
-      console.log(`Query Success. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${id}. Entity supply chain count ${count}. Result count ${result.records.length}`)
+      console.log(`Query Success. Time ${Date.now() - time}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. Result count ${result.records.length}`)
     } catch (err) {
-      console.error(`Query Error. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${id}. Entity supply chain count ${count}. ${err}`)
+      console.error(`Query Error. Time ${Date.now() - time}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. ${err}`)
     } finally {
       await session.close()
     }
