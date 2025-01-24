@@ -19,7 +19,7 @@ var (
 	CONCURRENCY, _           = strconv.Atoi(getEnv("CONCURRENCY", "18"))
 	TIMEOUT, _               = strconv.Atoi(getEnv("TIMEOUT", "15000"))
 	MIN_SUPPLY_CHAIN_SIZE, _ = strconv.Atoi(getEnv("MIN_SUPPLY_CHAIN_SIZE", "5000"))
-	entities                 = readCSV("data.csv")
+	entities                 = readCSV("../data.csv")
 	entityIdx                = 0
 	mutex                    sync.Mutex
 )
