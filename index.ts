@@ -3,8 +3,9 @@ import neo4j from 'neo4j-driver'
 
 const HOST = process.env.HOST ?? 'localhost'
 const PORT = process.env.PORT ?? '7687'
-const CONCURRENCY = process.env.CONCURRENCY !== undefined ? parseInt(process.env.CONCURRENCY, 10) : 15
+const CONCURRENCY = process.env.CONCURRENCY !== undefined ? parseInt(process.env.CONCURRENCY, 10) : 18
 const TIMEOUT = process.env.TIMEOUT !== undefined ? parseInt(process.env.TIMEOUT) : 15000
+const MIN_SUPPLY_CHAIN_SIZE = process.env.MIN_SUPPLY_CHAIN_SIZE !== undefined ? parseInt(process.env.MIN_SUPPLY_CHAIN_SIZE, 10) : 5000
 
 const driver = neo4j.driver(
   `bolt://${HOST}:${PORT}`,
@@ -12,19 +13,21 @@ const driver = neo4j.driver(
   { maxConnectionLifetime: 60_000, connectionLivenessCheckTimeout: 15_000 }
 )
 
-const entities = fs.readFileSync(`${__dirname}/data.csv`, 'utf-8')
+const entities: Array<[string, number]> = fs.readFileSync(`${__dirname}/data.csv`, 'utf-8')
   .split('\n')
   .map((line: string) => {
     const [id, count] = line.split(',')
     return [id, parseInt(count, 10)]
   })
-  .filter(([_, count]: [string, number]) => count > 5000)
+  .filter(([_, count]: [string, number]) => count > MIN_SUPPLY_CHAIN_SIZE)
   .sort((a: [string], b: [string]) => b[0].localeCompare(a[0]))
+let entityIdx = 0
 
 const queryRunner = async (runnerId: number) => {
-  while (entities.length > 0) {
+  while (true) {
+    const [id, count] = entities[entityIdx]
+    entityIdx = (entityIdx + 1) % entities.length
     const time = Date.now()
-    const [entityId, count] = entities.pop()
     const session = driver.session()
     try {
       const result = await session.run(`
@@ -51,21 +54,23 @@ const queryRunner = async (runnerId: number) => {
           export.min_date >= r4.min_date AND export.min_date <= r4.max_date AND
           product_map.is_component(export.hs_code, r4.hs_code)
           ))
-        WITH b, c, d, e, r1, collect(r4) AS r4 LIMIT 20000
-        RETURN collect(distinct b) as tier1, collect(distinct c) as tier2, collect(distinct d) as tier3, collect(distinct e) as tier4, collect(extract(r in r1 | r.hs_code)) as products
+        RETURN b, c, d, e, collect(r4) AS r4 LIMIT 20000
         QUERY MEMORY LIMIT 5120MB;
-      `, { id: entityId }, { timeout: TIMEOUT })
-      console.log(`Query Success. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${entityId}. Entity supply chain count ${count}.`)
+      `, { id }, { timeout: TIMEOUT })
+      console.log(`Query Success. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${id}. Entity supply chain count ${count}. Result count ${result.records.length}`)
     } catch (err) {
-      console.error(`Query Error. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${entityId}. Entity supply chain count ${count}. `, err)
+      console.error(`Query Error. Time ${Date.now() - time}. Runner id ${runnerId}. Entity id ${id}. Entity supply chain count ${count}. `, err)
     } finally {
       await session.close()
     }
   }
 }
 
-console.log(`Querying Memgraph at ${HOST}:${PORT} with concurrency ${CONCURRENCY} and timeout ${TIMEOUT}ms`)
+console.log(`Querying Memgraph at ${HOST}:${PORT} with concurrency ${CONCURRENCY}, timeout ${TIMEOUT}ms, min supply chain size ${MIN_SUPPLY_CHAIN_SIZE}`)
 
-for (let i = 0; i < CONCURRENCY; i++) {
-  queryRunner(i)
-}
+Promise.all(
+  Array(CONCURRENCY).fill(null).map((_, idx) => {
+    return queryRunner(idx)
+  })
+)
+  .catch((err) => console.error(err))
