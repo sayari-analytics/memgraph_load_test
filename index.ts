@@ -22,6 +22,10 @@ const entities: Array<[string, number]> = fs.readFileSync(`${__dirname}/data.csv
   .filter(([_, count]: [string, number]) => count > MIN_SUPPLY_CHAIN_SIZE)
   .sort((a: [string], b: [string]) => b[0].localeCompare(a[0]))
 let entityIdx = 0
+let totalResponseTime = 0
+let totalRequestCount = 0
+let successCount = 0
+let errorCount = 0
 
 const queryRunner = async (runnerId: number) => {
   while (true) {
@@ -29,6 +33,7 @@ const queryRunner = async (runnerId: number) => {
     entityIdx = (entityIdx + 1) % entities.length
     const time = Date.now()
     const session = driver.session()
+
     try {
       const result = await session.run(`
         MATCH (a:company { id: $id })<-[r1:ships_to]-(b)
@@ -66,9 +71,26 @@ const queryRunner = async (runnerId: number) => {
           collect(extract(node in e | [ID(node), node.id, node.label, node.risk])) AS e
         QUERY MEMORY LIMIT 5120MB;
       `, { id }, { timeout: TIMEOUT })
-      console.log(`Query Success. Time ${Date.now() - time}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. Result count ${result.records[0].get('e').length}`)
+      const dt = Date.now() - time
+      totalResponseTime += dt
+      totalRequestCount++
+      successCount++
+      console.log(
+        `Query Success. Time ${dt}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. Result count ${result.records[0].get('e').length}. ` +
+        `(Avg Response Time ${Math.round(totalResponseTime / totalRequestCount)}ms) ` +
+        `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})]`
+      )
     } catch (err) {
-      console.error(`Query Error. Time ${Date.now() - time}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. ${err}`)
+      const dt = Date.now() - time
+      totalResponseTime += dt
+      totalRequestCount++
+      errorCount++
+      console.error(
+        `Query Error. Time ${dt}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. ` +
+        `(Avg Response Time ${Math.round(totalResponseTime / totalRequestCount)}ms) ` +
+        `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})]` +
+        `${err}`
+      )
     } finally {
       await session.close()
     }
