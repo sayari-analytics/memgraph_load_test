@@ -54,10 +54,19 @@ const queryRunner = async (runnerId: number) => {
           export.min_date >= r4.min_date AND export.min_date <= r4.max_date AND
           product_map.is_component(export.hs_code, r4.hs_code)
           ))
-        RETURN b, c, d, e, collect(r4) AS r4 LIMIT 20000
+        WITH collect(distinct b) AS b, collect(distinct c) AS c, collect(distinct d) AS d, collect(distinct e) AS e, r1, r2, r3, collect(r4) AS r4 LIMIT 20000
+        RETURN
+          collect(extract(edge in r1 | [ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.arrival_date])) AS r1,
+          collect(extract(node in b | [ID(node), node.id, node.label, node.risk])) AS b,
+          collect(extract(edge in r2 | [ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.arrival_date])) AS r2,
+          collect(extract(node in c | [ID(node), node.id, node.label, node.risk])) AS c,
+          collect(extract(edge in r3 | [ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.arrival_date])) AS r3,
+          collect(extract(node in d | [ID(node), node.id, node.label, node.risk])) AS d,
+          collect(extract(edge in r4 | [ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.arrival_date])) AS r4,
+          collect(extract(node in e | [ID(node), node.id, node.label, node.risk])) AS e
         QUERY MEMORY LIMIT 5120MB;
       `, { id }, { timeout: TIMEOUT })
-      console.log(`Query Success. Time ${Date.now() - time}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. Result count ${result.records.length}`)
+      console.log(`Query Success. Time ${Date.now() - time}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. Result count ${result.records[0].get('e').length}`)
     } catch (err) {
       console.error(`Query Error. Time ${Date.now() - time}. Runner ${runnerId}/${CONCURRENCY - 1}. Entity id ${id}. Entity supply chain count ${count}. ${err}`)
     } finally {
