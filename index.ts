@@ -1,23 +1,22 @@
 import * as fs from 'fs'
-import neo4j, { QueryResult } from 'neo4j-driver'
+import neo4j from 'neo4j-driver'
 
 const HOST = process.env.HOST ?? 'localhost'
 const PORT = process.env.PORT ?? '7687'
+const TIME = process.env.TIME !== undefined ? parseInt(process.env.TIME, 10) : undefined
 const CONCURRENCY = process.env.CONCURRENCY !== undefined ? parseInt(process.env.CONCURRENCY, 10) : 18
-const TIMEOUT = process.env.TIMEOUT !== undefined ? parseInt(process.env.TIMEOUT) : 15000
+const TIMEOUT = process.env.TIMEOUT !== undefined ? parseInt(process.env.TIMEOUT) : undefined
 const MIN_SUPPLY_CHAIN_SIZE = process.env.MIN_SUPPLY_CHAIN_SIZE !== undefined ? parseInt(process.env.MIN_SUPPLY_CHAIN_SIZE, 10) : 2000
 const QUERY_RESPONSE_TYPE = process.env.QUERY_RESPONSE_TYPE ?? 'graph'
+const USING_HOPS_LIMIT = process.env.USING_HOPS_LIMIT !== undefined ? parseInt(process.env.USING_HOPS_LIMIT, 10) : undefined
+const QUERY_MEMORY_LIMIT = process.env.QUERY_MEMORY_LIMIT
 
 if (QUERY_RESPONSE_TYPE !== 'graph' && QUERY_RESPONSE_TYPE !== 'count') {
   console.error(`Invalid QUERY_RESPONSE_TYPE param ${QUERY_RESPONSE_TYPE}. Expected values 'graph', 'map'.`)
   process.exit(1)
 }
 
-const driver = neo4j.driver(
-  `bolt://${HOST}:${PORT}`,
-  undefined, 
-  { maxConnectionLifetime: 60_000, connectionLivenessCheckTimeout: 15_000 }
-)
+const driver = neo4j.driver(`bolt://${HOST}:${PORT}`)
 
 const entities: Array<[string, number]> = fs.readFileSync(`${__dirname}/data.csv`, 'utf-8')
   .split('\n')
@@ -33,7 +32,9 @@ let totalRequestCount = 0
 let successCount = 0
 let errorCount = 0
 const START_TIME = Date.now()
-const QUERY = `
+const QUERY = (
+  USING_HOPS_LIMIT ? `USING HOPS LIMIT ${USING_HOPS_LIMIT} ` : ''
+) + `
   MATCH (a:company { id: $id })<-[r1:ships_to]-(b)
   WHERE b != a 
   WITH a, b, collect(r1) AS r1
@@ -72,7 +73,9 @@ const QUERY = `
       collect(extract(node in e | [ID(node), node.id, node.label, node.risk])) AS e
     `
     : `RETURN count(*) AS count `
-) + 'QUERY MEMORY LIMIT 5120MB;'
+) + (
+  QUERY_MEMORY_LIMIT ? `QUERY MEMORY LIMIT ${QUERY_MEMORY_LIMIT};` : ';'
+)
 
 const queryRunner = async () => {
   while (true) {
@@ -82,14 +85,14 @@ const queryRunner = async () => {
     const t1 = Date.now()
 
     try {
-      const result = await session.run(QUERY, { id }, { timeout: TIMEOUT })
+      const result = await session.run(QUERY, { id }, TIMEOUT ? { timeout: TIMEOUT } : {})
       const totalResponseTime = Date.now() - START_TIME
       totalRequestCount++
       successCount++
   
       console.log(
         `Success. Time ${Date.now() - t1}ms. Result count ${QUERY_RESPONSE_TYPE === 'graph' ? result.records[0].get('e').length : result.records[0].get('count')} ` +
-        `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((totalRequestCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
+        `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
         `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})]`
       )
     } catch (err) {
@@ -99,19 +102,23 @@ const queryRunner = async () => {
   
       console.error(
         `Error. Time ${Date.now() - t1}ms ` +
-        `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((totalRequestCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
+        `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
         `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ` +
         err
       )
     } finally {
       await session.close()
+      if (TIME !== undefined && Date.now() - START_TIME >= TIME * 1000) {
+        break
+      }
     }
   }
 }
 
-console.log(`Querying Memgraph at ${HOST}:${PORT} with concurrency ${CONCURRENCY}, timeout ${TIMEOUT}ms, min supply chain size ${MIN_SUPPLY_CHAIN_SIZE}, response type ${QUERY_RESPONSE_TYPE}`)
+console.log(`Querying Memgraph at ${HOST}:${PORT} with concurrency ${CONCURRENCY}, timeout ${TIMEOUT ?? '-'}, min supply chain size ${MIN_SUPPLY_CHAIN_SIZE}, response type ${QUERY_RESPONSE_TYPE}, hops limit ${USING_HOPS_LIMIT ?? '-'}, memory limit ${QUERY_MEMORY_LIMIT ?? '-'}`)
 
 Promise.all(
   Array(CONCURRENCY).fill(null).map(queryRunner)
 )
+  .then(() => driver.close())
   .catch((err) => console.error(err))
