@@ -76,7 +76,6 @@ const QUERY = `
 
 const queryRunner = async () => {
   while (true) {
-    totalRequestCount++
     const [id] = entities[entityIdx]
     entityIdx = (entityIdx + 1) % entities.length
     const session = driver.session()
@@ -85,6 +84,7 @@ const queryRunner = async () => {
     try {
       const result = await session.run(QUERY, { id }, { timeout: TIMEOUT })
       const totalResponseTime = Date.now() - START_TIME
+      totalRequestCount++
       successCount++
   
       console.log(
