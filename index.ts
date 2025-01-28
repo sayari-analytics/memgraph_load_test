@@ -58,19 +58,18 @@ const QUERY = (
     export.min_date >= r4.min_date AND export.min_date <= r4.max_date AND
     product_map.is_component(export.hs_code, r4.hs_code)
     ))
-  WITH collect(distinct b) AS b, collect(distinct c) AS c, collect(distinct d) AS d, collect(distinct e) AS e, r1, r2, r3, collect(r4) AS r4 LIMIT 20000
+  WITH a, b, c, d, e, r1, r2, r3, collect(r4) AS r4
 ` + (
   QUERY_RESPONSE_TYPE === 'graph'
     ? `
-      RETURN
-      collect(extract(edge in r1 | [ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.arrival_date])) AS r1,
-      collect(extract(node in b | [ID(node), node.id, node.label, node.risk])) AS b,
-      collect(extract(edge in r2 | [ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.arrival_date])) AS r2,
-      collect(extract(node in c | [ID(node), node.id, node.label, node.risk])) AS c,
-      collect(extract(edge in r3 | [ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.arrival_date])) AS r3,
-      collect(extract(node in d | [ID(node), node.id, node.label, node.risk])) AS d,
-      collect(extract(edge in r4 | [ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.arrival_date])) AS r4,
-      collect(extract(node in e | [ID(node), node.id, node.label, node.risk])) AS e
+      UNWIND [a, b, c, d, e] + r1 + r2 + r3 + r4 AS item
+      RETURN extract(
+        item IN collect(distinct item) |
+        CASE valueType(item)
+          WHEN 'NODE' THEN [ID(item), item.id, item.label, item.risk]
+          ELSE [ID(startNode(item)), ID(endNode(item)), item.hs_code_int, item.arrival_date]
+        END
+      ) AS items
     `
     : `RETURN count(*) AS count `
 ) + (
@@ -91,9 +90,10 @@ const queryRunner = async () => {
       successCount++
   
       console.log(
-        `Success. Time ${Date.now() - t1}ms. Result count ${QUERY_RESPONSE_TYPE === 'graph' ? result.records[0].get('e').length : result.records[0].get('count')} ` +
+        `Success. Time ${Date.now() - t1}ms. Result count ${QUERY_RESPONSE_TYPE === 'graph' ? result.records[0].get('items').length : result.records[0].get('count')} ` +
         `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
-        `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})]`
+        `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ` +
+        id
       )
     } catch (err) {
       const totalResponseTime = Date.now() - START_TIME
