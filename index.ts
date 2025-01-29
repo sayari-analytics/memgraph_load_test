@@ -67,7 +67,7 @@ const QUERY = (
         item IN collect(distinct item) |
         CASE valueType(item)
           WHEN 'NODE' THEN [ID(item), item.id, item.label, item.risk]
-          ELSE [ID(startNode(item)), ID(endNode(item)), item.hs_code_int, item.arrival_date]
+          ELSE [ID(startNode(item)), ID(endNode(item)), item.hs_code_int, item.max_date, item.min_date, item.product_origin, item.shipment_arrival, item.shipment_departure]
         END
       ) AS items
     `
@@ -92,8 +92,7 @@ const queryRunner = async () => {
       console.log(
         `Success. Time ${Date.now() - t1}ms. Result count ${QUERY_RESPONSE_TYPE === 'graph' ? result.records[0].get('items').length : result.records[0].get('count')} ` +
         `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
-        `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ` +
-        id
+        `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ${id} `
       )
     } catch (err) {
       const totalResponseTime = Date.now() - START_TIME
@@ -103,7 +102,7 @@ const queryRunner = async () => {
       console.error(
         `Error. Time ${Date.now() - t1}ms ` +
         `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
-        `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ` +
+        `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ${id} ` +
         err
       )
     } finally {
