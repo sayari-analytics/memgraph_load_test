@@ -1,5 +1,5 @@
 import * as fs from 'fs'
-import neo4j from 'neo4j-driver'
+import neo4j, { Integer } from 'neo4j-driver'
 
 const HOST = process.env.HOST ?? 'localhost'
 const PORT = process.env.PORT ?? '7687'
@@ -8,8 +8,9 @@ const CONCURRENCY = process.env.CONCURRENCY !== undefined ? parseInt(process.env
 const TIMEOUT = process.env.TIMEOUT !== undefined ? parseInt(process.env.TIMEOUT) : undefined
 const MIN_SUPPLY_CHAIN_SIZE = process.env.MIN_SUPPLY_CHAIN_SIZE !== undefined ? parseInt(process.env.MIN_SUPPLY_CHAIN_SIZE, 10) : 2000
 const QUERY_DATE_FILTER = process.env.QUERY_DATE_FILTER ?? 'path_date_filter'
+const QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL = process.env.QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL !== undefined
 const QUERY_RESPONSE_TYPE = process.env.QUERY_RESPONSE_TYPE ?? 'graph'
-const USING_HOPS_LIMIT = process.env.USING_HOPS_LIMIT !== undefined ? parseInt(process.env.USING_HOPS_LIMIT, 10) : undefined
+const QUERY_HOPS_LIMIT = process.env.QUERY_HOPS_LIMIT !== undefined ? parseInt(process.env.QUERY_HOPS_LIMIT, 10) : undefined
 const QUERY_MEMORY_LIMIT = process.env.QUERY_MEMORY_LIMIT
 
 if (QUERY_DATE_FILTER !== 'path_date_filter' && QUERY_DATE_FILTER !== 'segment_date_filter') {
@@ -37,20 +38,22 @@ let entityIdx = 0
 let totalRequestCount = 0
 let successCount = 0
 let errorCount = 0
+let totalEntityCount = 0
 const START_TIME = Date.now()
-let QUERY = USING_HOPS_LIMIT ? `USING HOPS LIMIT ${USING_HOPS_LIMIT} ` : ''
+let QUERY = QUERY_HOPS_LIMIT ? `USING HOPS LIMIT ${QUERY_HOPS_LIMIT} ` : ''
 
 if (QUERY_DATE_FILTER === 'path_date_filter') {
   QUERY += `
     MATCH (a:company { id: $id })<-[r1:ships_to]-(b)
       WHERE b != a
-    WITH a, b, r1.hs_code AS component, r1.max_date AS max_date, r1.min_date AS min_date, r1
+    WITH a, b, r1.hs_code AS component, r1.shipment_departure AS shipment_departure, r1.max_date AS max_date, r1.min_date AS min_date, r1
     OPTIONAL MATCH (b)<-[r2:ships_to]-(c)
       WHERE c != b AND c != a
         AND product_map.is_component(component, r2.hs_code)
         AND max_date >= r2.min_date
         AND min_date <= r2.max_date
-    WITH a, b, c, r2.hs_code AS component,
+        ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN shipment_departure WHERE any(arrival IN r2.shipment_arrival WHERE departure = arrival))` : ''}
+    WITH a, b, c, r2.hs_code AS component, r2.shipment_departure AS shipment_departure,
       CASE
         WHEN max_date < r2.max_date THEN max_date ELSE r2.max_date
       END AS max_date,
@@ -63,7 +66,8 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
         AND product_map.is_component(component, r3.hs_code)
         AND max_date >= r3.min_date
         AND min_date <= r3.max_date
-    WITH a, b, c, d, r3.hs_code AS component,
+        ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN shipment_departure WHERE any(arrival IN r3.shipment_arrival WHERE departure = arrival))` : ''}
+    WITH a, b, c, d, r3.hs_code AS component, r3.shipment_departure AS shipment_departure,
       CASE
         WHEN max_date < r3.max_date THEN max_date ELSE r3.max_date
       END AS max_date,
@@ -71,12 +75,13 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
         WHEN min_date > r3.min_date THEN min_date ELSE r3.min_date 
       END AS min_date,
       r1, r2, r3
-    WITH a, b, c, d, component, max_date, min_date, collect(r1) + collect(r2) AS edges, r3
+    WITH a, b, c, d, component, shipment_departure, max_date, min_date, collect(r1) + collect(r2) + collect(r3) AS edges
     OPTIONAL MATCH (d)<-[r4:ships_to]-(e)
       WHERE e != d AND e != c AND e != b AND e != a
         AND product_map.is_component(component, r4.hs_code)
         AND max_date >= r4.min_date
         AND min_date <= r4.max_date
+        ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN shipment_departure WHERE any(arrival IN r4.shipment_arrival WHERE departure = arrival))` : ''}
     UNWIND edges + [r3, r4, a, b, c, d, e] AS item
   `
 } else {
@@ -87,22 +92,25 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
     OPTIONAL MATCH (b)<-[r2:ships_to]-(c)
       WHERE c != b AND c != a AND any(export IN r1
       WHERE (
-      export.min_date >= r2.min_date AND export.min_date <= r2.max_date AND
-      product_map.is_component(export.hs_code, r2.hs_code)
+        export.min_date >= r2.min_date AND export.min_date <= r2.max_date
+        AND product_map.is_component(export.hs_code, r2.hs_code)
+        ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r2.shipment_arrival WHERE departure = arrival))` : ''}
       ))
     WITH a, b, c, r1, collect(r2) AS r2
     OPTIONAL MATCH (c)<-[r3:ships_to]-(d)
       WHERE d != c AND d != b AND d != a AND any(export IN r2
       WHERE (
-      export.min_date >= r3.min_date AND export.min_date <= r3.max_date AND
-      product_map.is_component(export.hs_code, r3.hs_code)
+        export.min_date >= r3.min_date AND export.min_date <= r3.max_date
+        AND product_map.is_component(export.hs_code, r3.hs_code)
+        ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r3.shipment_arrival WHERE departure = arrival))` : ''}
       ))
     WITH a, b, c, d, r1, r2, collect(r3) AS r3
     OPTIONAL MATCH (d)<-[r4:ships_to]-(e)
       WHERE e != d AND e != c AND e != b AND e != a AND any(export IN r3
       WHERE (
-      export.min_date >= r4.min_date AND export.min_date <= r4.max_date AND
-      product_map.is_component(export.hs_code, r4.hs_code)
+        export.min_date >= r4.min_date AND export.min_date <= r4.max_date
+        AND product_map.is_component(export.hs_code, r4.hs_code)
+        ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r4.shipment_arrival WHERE departure = arrival))` : ''}
       ))
     WITH a, b, c, d, e, r1, r2, r3, collect(r4) AS r4
     UNWIND [a, b, c, d, e] + r1 + r2 + r3 + r4 AS item
@@ -118,14 +126,13 @@ if (QUERY_RESPONSE_TYPE === 'graph') {
         WHEN 'NODE' THEN [ID(item), item.id, item.label, item.risk]
         ELSE [ID(startNode(item)), ID(endNode(item)), item.hs_code_int, item.max_date, item.min_date, item.product_origin, item.shipment_arrival, item.shipment_departure]
       END
-    ) AS items
+    ) AS nodes_and_edges
   `
 } else {
   QUERY += `
-    WITH item WHERE item IS NOT NULL
+    WITH item WHERE item IS NOT NULL AND valueType(item) = 'NODE'
     WITH collect(distinct item) AS items
-    WITH collect(distinct item) AS items
-    RETURN size(items) AS count
+    RETURN size(items) AS node_count
   `
 }
 
@@ -143,14 +150,27 @@ const queryRunner = async () => {
     const t1 = Date.now()
 
     try {
-      const result = await session.run(QUERY, { id }, TIMEOUT ? { timeout: TIMEOUT } : {})
+      let entityCount: number
+      if (QUERY_RESPONSE_TYPE === 'graph') {
+        const result = await session.run<{ nodes_and_edges: ([Integer, string, string, Integer[]] | [Integer, Integer, Integer, Date, Date, Integer, Integer, Integer])[] }>(QUERY, { id }, TIMEOUT ? { timeout: TIMEOUT } : {})
+
+        console.log(JSON.stringify(result.summary, null, 2))
+        entityCount = result.records[0].get('nodes_and_edges').filter((node_or_edge) => {
+          return node_or_edge.length === 4
+        }).length
+      } else {
+        const result = await session.run<{ node_count: number }>(QUERY, { id }, TIMEOUT ? { timeout: TIMEOUT } : {})
+        entityCount = result.records[0].get('node_count')
+      }
+
       const totalResponseTime = Date.now() - START_TIME
       totalRequestCount++
       successCount++
+      totalEntityCount += entityCount
   
       console.log(
-        `Success. Time ${Date.now() - t1}ms. Result count ${QUERY_RESPONSE_TYPE === 'graph' ? result.records[0].get('items').length : result.records[0].get('count')} ` +
-        `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
+        `Success. Time ${Date.now() - t1}ms. Entity count ${entityCount} ` +
+        `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms, throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min, entities ${Math.round(totalEntityCount / successCount)}) ` +
         `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ${id} `
       )
     } catch (err) {
@@ -160,7 +180,7 @@ const queryRunner = async () => {
   
       console.error(
         `Error. Time ${Date.now() - t1}ms ` +
-        `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
+        `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms, throughout ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min) ` +
         `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ${id} ` +
         err
       )
@@ -173,7 +193,7 @@ const queryRunner = async () => {
   }
 }
 
-console.log(`Querying Memgraph at ${HOST}:${PORT} with concurrency ${CONCURRENCY}, timeout ${TIMEOUT ?? '-'}, min supply chain size ${MIN_SUPPLY_CHAIN_SIZE}, response type ${QUERY_RESPONSE_TYPE}, hops limit ${USING_HOPS_LIMIT ?? '-'}, memory limit ${QUERY_MEMORY_LIMIT ?? '-'}`)
+console.log(`Querying Memgraph at ${HOST}:${PORT} with concurrency ${CONCURRENCY}, timeout ${TIMEOUT ?? '-'}, min supply chain size ${MIN_SUPPLY_CHAIN_SIZE}, response type ${QUERY_RESPONSE_TYPE}, hops limit ${QUERY_HOPS_LIMIT ?? '-'}, downstream_departure=upstream_arrival ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL}`)
 
 Promise.all(
   Array(CONCURRENCY).fill(null).map(queryRunner)
