@@ -82,7 +82,7 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
         AND max_date >= r4.min_date
         AND min_date <= r4.max_date
         ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN shipment_departure WHERE any(arrival IN r4.shipment_arrival WHERE departure = arrival))` : ''}
-    UNWIND edges + [r3, r4, a, b, c, d, e] AS item
+    UNWIND edges + [r4, a, b, c, d, e] AS item
   `
 } else {
   QUERY += `
@@ -154,13 +154,12 @@ const queryRunner = async () => {
       if (QUERY_RESPONSE_TYPE === 'graph') {
         const result = await session.run<{ nodes_and_edges: ([Integer, string, string, Integer[]] | [Integer, Integer, Integer, Date, Date, Integer, Integer, Integer])[] }>(QUERY, { id }, TIMEOUT ? { timeout: TIMEOUT } : {})
 
-        console.log(JSON.stringify(result.summary, null, 2))
         entityCount = result.records[0].get('nodes_and_edges').filter((node_or_edge) => {
           return node_or_edge.length === 4
         }).length
       } else {
         const result = await session.run<{ node_count: number }>(QUERY, { id }, TIMEOUT ? { timeout: TIMEOUT } : {})
-        entityCount = result.records[0].get('node_count')
+        entityCount = Number(result.records[0].get('node_count'))
       }
 
       const totalResponseTime = Date.now() - START_TIME
