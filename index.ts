@@ -9,7 +9,7 @@ const MIN_SUPPLY_CHAIN_SIZE = process.env.MIN_SUPPLY_CHAIN_SIZE !== undefined ? 
 const QUERY_DATE_FILTER = process.env.QUERY_DATE_FILTER ?? 'path_date_filter'
 const QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL = (process.env.QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ?? '').toLowerCase() !== 'false'
 const QUERY_RESPONSE_TYPE = process.env.QUERY_RESPONSE_TYPE ?? 'graph_and_paths'
-const QUERY_HOPS_LIMIT = process.env.QUERY_HOPS_LIMIT !== undefined ? parseInt(process.env.QUERY_HOPS_LIMIT, 10) : 2500000
+const QUERY_HOPS_LIMIT = process.env.QUERY_HOPS_LIMIT !== undefined ? parseInt(process.env.QUERY_HOPS_LIMIT, 10) : 5000000
 
 if (QUERY_DATE_FILTER !== 'path_date_filter' && QUERY_DATE_FILTER !== 'segment_date_filter') {
   console.error(`Invalid QUERY_DATE_FILTER param ${QUERY_DATE_FILTER}. Expected values 'path_date_filter', 'segment_date_filter'.`)
