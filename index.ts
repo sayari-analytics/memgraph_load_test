@@ -144,8 +144,13 @@ const queryRunner = async () => {
 
     try {
       let entityCount: number
+      let pathCount: number | undefined = undefined
       if (QUERY_RESPONSE_TYPE === 'graph_and_paths' || QUERY_RESPONSE_TYPE === 'graph') {
-        entityCount = (await session.run<{ nodes: unknown[] }>(QUERY, { id })).records[0].get('nodes').length
+        const response = await session.run<{ nodes: unknown[], paths: unknown[]}>(QUERY, { id })
+        entityCount = response.records[0].get('nodes').length
+        if (QUERY_RESPONSE_TYPE === 'graph_and_paths') {
+          pathCount = response.records[0].get('paths').length
+        }
       } else {
         entityCount = (await session.run<{ count: Integer }>(QUERY, { id })).records[0].get('count').toNumber()
       }
@@ -156,7 +161,7 @@ const queryRunner = async () => {
       totalEntityCount += entityCount
   
       console.log(
-        `Success. Time ${Date.now() - t1}ms. Entity count ${entityCount} ` +
+        `Success. Time ${Date.now() - t1}ms. Entity count ${entityCount}.${pathCount !== undefined ? ` Path count ${pathCount}` : ''} ` +
         `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms, throughput ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min, entities ${Math.round(totalEntityCount / successCount)}) ` +
         `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ${id} `
       )
