@@ -30,7 +30,7 @@ const entities: Array<[string, number]> = fs.readFileSync(`${__dirname}/data.csv
     return [id, parseInt(count, 10)]
   })
   .filter(([_, count]: [string, number]) => count > MIN_SUPPLY_CHAIN_SIZE)
-  .sort((a: [string], b: [string]) => b[0].localeCompare(a[0]))
+  // .sort((a: [string], b: [string]) => b[0].localeCompare(a[0]))
 
 let entityIdx = 0
 let totalRequestCount = 0
@@ -87,7 +87,7 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
   QUERY += `
     MATCH (a:company { id: $id })<-[r1:ships_to]-(b)
       WHERE b != a 
-    WITH a, b, collect(r1) AS r1s
+    WITH a, b, r1.hs_code_int AS product, collect(r1) AS r1s
     OPTIONAL MATCH (b)<-[r2:ships_to]-(c)
       WHERE c != b AND c != a
         AND any(export IN r1s WHERE (
@@ -95,7 +95,7 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
           ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r2.shipment_arrival WHERE departure = arrival))` : ''}
           AND (export.hs_code_int = r2.hs_code_int OR sayari_c_module.is_product_component(export.hs_code_int, r2.hs_code_int))
         ))
-    WITH a, b, c, r1s, collect(r2) AS r2s
+    WITH a, b, c, product, r1s, collect(r2) AS r2s
     OPTIONAL MATCH (c)<-[r3:ships_to]-(d)
       WHERE d != c AND d != b AND d != a
         AND any(export IN r2s WHERE (
@@ -103,7 +103,7 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
           ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r3.shipment_arrival WHERE departure = arrival))` : ''}
           AND (export.hs_code_int = r3.hs_code_int OR sayari_c_module.is_product_component(export.hs_code_int, r3.hs_code_int))
         ))
-    WITH a, b, c, d, r1s, r2s, collect(r3) AS r3s
+    WITH a, b, c, d, product, r1s, r2s, collect(r3) AS r3s
     OPTIONAL MATCH (d)<-[r4:ships_to]-(e)
       WHERE e != d AND e != c AND e != b AND e != a
         AND any(export IN r3s WHERE (
