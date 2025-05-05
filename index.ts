@@ -77,11 +77,10 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
         AND max_date >= r4.min_date AND min_date <= r4.max_date
         ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN shipment_departure WHERE any(arrival IN r4.shipment_arrival WHERE departure = arrival))` : ''}
         AND (component = r4.hs_code_int OR sayari_c_module.is_product_component(component, r4.hs_code_int))
-    UNWIND r1s AS r1
-    UNWIND r2s AS r2
+    WITH a, b, c, d, e, product, r1s, r2s, collect(r3) AS r3s, collect(r4) AS r4s
     WITH
-      project([a, b, c, d, e], [r1, r2, r3, r4]) AS graph,
-      collect({ product: product, edges: [r1, r2, r3, r4] }) AS paths
+      project([a, b, c, d, e], r1s + r2s + r3s + r4s) AS graph,
+      collect({ product: product, edgesPerTier: [r1s, r2s, r3s, r4s] }) AS paths
   `
 } else {
   QUERY += `
@@ -111,12 +110,10 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
           ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r4.shipment_arrival WHERE departure = arrival))` : ''}
           AND (export.hs_code_int = r4.hs_code_int OR sayari_c_module.is_product_component(export.hs_code_int, r4.hs_code_int))
         ))
-    UNWIND r1s AS r1
-    UNWIND r2s AS r2
-    UNWIND r3s AS r3
+    WITH a, b, c, d, e, product, r1s, r2s, r3s, collect(r4) AS r4s
     WITH
-      project([a, b, c, d, e], [r1, r2, r3, r4]) AS graph,
-      collect({ product: product, edges: [r1, r2, r3, r4] }) AS paths
+      project([a, b, c, d, e], r1s + r2s + r3s + r4s) AS graph,
+      collect({ product: product, edgesPerTier: [r1s, r2s, r3s, r4s] }) AS paths
   `
 }
 
@@ -124,7 +121,7 @@ if (QUERY_RESPONSE_TYPE === 'graph_and_paths') {
   QUERY += `RETURN 
       extract(edge IN graph.edges | [ID(edge), ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.shipment_arrival, edge.shipment_departure, edge.min_date, edge.max_date]) AS edges,
       extract(node IN graph.nodes | [ID(node), node.id, LABELS(node), node.label, node.risk, node.country]) AS nodes,
-      extract(path IN paths | { product: path.product, edges: extract(edge IN path.edges | ID(edge)) }) AS paths
+      extract(path IN paths | { product: path.product, edges: extract(edgesPerTier IN path.edgesPerTier | extract(edge IN edgesPerTier | ID(edge))) }) AS paths
   `
 } else if (QUERY_RESPONSE_TYPE === 'graph') {
   QUERY += `RETURN 
@@ -144,8 +141,13 @@ const queryRunner = async () => {
 
     try {
       let entityCount: number
+      let pathCount: number | undefined = undefined
       if (QUERY_RESPONSE_TYPE === 'graph_and_paths' || QUERY_RESPONSE_TYPE === 'graph') {
-        entityCount = (await session.run<{ nodes: unknown[] }>(QUERY, { id })).records[0].get('nodes').length
+        const response = await session.run<{ nodes: unknown[], paths: unknown[]}>(QUERY, { id })
+        entityCount = response.records[0].get('nodes').length
+        if (QUERY_RESPONSE_TYPE === 'graph_and_paths') {
+          pathCount = response.records[0].get('paths').length
+        }
       } else {
         entityCount = (await session.run<{ count: Integer }>(QUERY, { id })).records[0].get('count').toNumber()
       }
@@ -156,7 +158,7 @@ const queryRunner = async () => {
       totalEntityCount += entityCount
   
       console.log(
-        `Success. Time ${Date.now() - t1}ms. Entity count ${entityCount} ` +
+        `Success. Time ${Date.now() - t1}ms. Entity count ${entityCount}.${pathCount !== undefined ? ` Path count ${pathCount}` : ''} ` +
         `(TOTAL: ${totalRequestCount} reqs ${Math.round(totalResponseTime / 1000)} sec) (AVG: latency ${Math.round(totalResponseTime / totalRequestCount)}ms, throughput ${Math.round((successCount / (totalResponseTime / 60000)) * 100) / 100} req/min, entities ${Math.round(totalEntityCount / successCount)}) ` +
         `[Success ${Math.round(successCount/totalRequestCount * 100)}% (${successCount}/${totalRequestCount}) Error ${Math.round(errorCount/totalRequestCount * 100)}% (${errorCount}/${totalRequestCount})] ${id} `
       )
