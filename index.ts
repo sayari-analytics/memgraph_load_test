@@ -45,8 +45,10 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
   QUERY += `
     MATCH (a:company { id: $id })<-[r1:ships_to]-(b)
       WHERE b != a
-    WITH a, b, r1,
-      r1.hs_code_int AS product,
+    WITH
+      ${QUERY_RESPONSE_TYPE === 'graph_and_paths' ? 'r1.hs_code_int AS product,' : ''}
+      a, b, r1,
+      r1.hs_code_int AS component,
       r1.shipment_departure AS shipment_departure,
       r1.max_date AS max_date,
       r1.min_date AS min_date
@@ -54,9 +56,10 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
       WHERE c != b AND c != a
         AND max_date >= r2.min_date AND min_date <= r2.max_date
         ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN shipment_departure WHERE any(arrival IN r2.shipment_arrival WHERE departure = arrival))` : ''}
-        AND (product = r2.hs_code_int OR sayari_c_module.is_product_component(product, r2.hs_code_int))
-    WITH a, b, c, r1, r2,
-      product,
+        AND (component = r2.hs_code_int OR sayari_c_module.is_product_component(component, r2.hs_code_int))
+    WITH
+      ${QUERY_RESPONSE_TYPE === 'graph_and_paths' ? 'product,' : ''}
+      a, b, c, r1, r2,
       r2.hs_code_int AS component,
       r2.shipment_departure AS shipment_departure,
       CASE WHEN max_date < r2.max_date THEN max_date ELSE r2.max_date END AS max_date,
@@ -66,8 +69,9 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
         AND max_date >= r3.min_date AND min_date <= r3.max_date
         ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN shipment_departure WHERE any(arrival IN r3.shipment_arrival WHERE departure = arrival))` : ''}
         AND (component = r3.hs_code_int OR sayari_c_module.is_product_component(component, r3.hs_code_int))
-    WITH a, b, c, d, collect(r1) AS r1s, collect(r2) AS r2s, r3,
-      product,
+    WITH
+      ${QUERY_RESPONSE_TYPE === 'graph_and_paths' ? 'product,' : ''}
+      a, b, c, d, collect(r1) AS r1s, collect(r2) AS r2s, r3,
       r3.hs_code_int AS component,
       r3.shipment_departure AS shipment_departure,
       CASE WHEN max_date < r3.max_date THEN max_date ELSE r3.max_date END AS max_date,
@@ -77,16 +81,17 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
         AND max_date >= r4.min_date AND min_date <= r4.max_date
         ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN shipment_departure WHERE any(arrival IN r4.shipment_arrival WHERE departure = arrival))` : ''}
         AND (component = r4.hs_code_int OR sayari_c_module.is_product_component(component, r4.hs_code_int))
-    WITH a, b, c, d, e, product, r1s, r2s, collect(r3) AS r3s, collect(r4) AS r4s
     WITH
-      project([a, b, c, d, e], r1s + r2s + r3s + r4s) AS graph,
-      collect({ product: product, edgesPerTier: [r1s, r2s, r3s, r4s] }) AS paths
+      ${QUERY_RESPONSE_TYPE === 'graph_and_paths' ? 'product,' : ''}
+      a, b, c, d, e, r1s, r2s, collect(r3) AS r3s, collect(r4) AS r4s
   `
 } else {
   QUERY += `
     MATCH (a:company { id: $id })<-[r1:ships_to]-(b)
       WHERE b != a 
-    WITH a, b, r1.hs_code_int AS product, collect(r1) AS r1s
+    WITH
+      ${QUERY_RESPONSE_TYPE === 'graph_and_paths' ? 'r1.hs_code_int AS product,' : ''}
+      a, b, collect(r1) AS r1s
     OPTIONAL MATCH (b)<-[r2:ships_to]-(c)
       WHERE c != b AND c != a
         AND any(export IN r1s WHERE (
@@ -94,7 +99,9 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
           ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r2.shipment_arrival WHERE departure = arrival))` : ''}
           AND (export.hs_code_int = r2.hs_code_int OR sayari_c_module.is_product_component(export.hs_code_int, r2.hs_code_int))
         ))
-    WITH a, b, c, product, r1s, collect(r2) AS r2s
+    WITH
+      ${QUERY_RESPONSE_TYPE === 'graph_and_paths' ? 'product,' : ''}
+      a, b, c, r1s, collect(r2) AS r2s
     OPTIONAL MATCH (c)<-[r3:ships_to]-(d)
       WHERE d != c AND d != b AND d != a
         AND any(export IN r2s WHERE (
@@ -102,7 +109,9 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
           ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r3.shipment_arrival WHERE departure = arrival))` : ''}
           AND (export.hs_code_int = r3.hs_code_int OR sayari_c_module.is_product_component(export.hs_code_int, r3.hs_code_int))
         ))
-    WITH a, b, c, d, product, r1s, r2s, collect(r3) AS r3s
+    WITH
+      ${QUERY_RESPONSE_TYPE === 'graph_and_paths' ? 'product,' : ''}
+      a, b, c, d, r1s, r2s, collect(r3) AS r3s
     OPTIONAL MATCH (d)<-[r4:ships_to]-(e)
       WHERE e != d AND e != c AND e != b AND e != a
         AND any(export IN r3s WHERE (
@@ -110,26 +119,34 @@ if (QUERY_DATE_FILTER === 'path_date_filter') {
           ${QUERY_DOWNSTREAM_DEPARTURE_EQUALS_UPSTREAM_ARRIVAL ? `AND any(departure IN export.shipment_departure WHERE any(arrival IN r4.shipment_arrival WHERE departure = arrival))` : ''}
           AND (export.hs_code_int = r4.hs_code_int OR sayari_c_module.is_product_component(export.hs_code_int, r4.hs_code_int))
         ))
-    WITH a, b, c, d, e, product, r1s, r2s, r3s, collect(r4) AS r4s
     WITH
-      project([a, b, c, d, e], r1s + r2s + r3s + r4s) AS graph,
-      collect({ product: product, edgesPerTier: [r1s, r2s, r3s, r4s] }) AS paths
+      ${QUERY_RESPONSE_TYPE === 'graph_and_paths' ? 'product,' : ''}
+      a, b, c, d, e, r1s, r2s, r3s, collect(r4) AS r4s
   `
 }
 
 if (QUERY_RESPONSE_TYPE === 'graph_and_paths') {
-  QUERY += `RETURN 
+  QUERY += `
+    WITH
+      project([a, b, c, d, e], r1s + r2s + r3s + r4s) AS graph,
+      collect({ product: product, edges: [r1s, r2s, r3s, r4s] }) AS paths
+    RETURN 
       extract(edge IN graph.edges | [ID(edge), ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.shipment_arrival, edge.shipment_departure, edge.min_date, edge.max_date]) AS edges,
       extract(node IN graph.nodes | [ID(node), node.id, LABELS(node), node.label, node.risk, node.country]) AS nodes,
-      extract(path IN paths | { product: path.product, edges: extract(edgesPerTier IN path.edgesPerTier | extract(edge IN edgesPerTier | ID(edge))) }) AS paths
+      extract(path IN paths | { product: path.product, edges: extract(edgesPerTier IN path.edges | extract(edge IN edgesPerTier | ID(edge))) }) AS paths
   `
 } else if (QUERY_RESPONSE_TYPE === 'graph') {
-  QUERY += `RETURN 
+  QUERY += `
+    WITH project([a, b, c, d, e], r1s + r2s + r3s + r4s) AS graph
+    RETURN 
       extract(edge IN graph.edges | [ID(edge), ID(startNode(edge)), ID(endNode(edge)), edge.hs_code_int, edge.shipment_arrival, edge.shipment_departure, edge.min_date, edge.max_date]) AS edges,
       extract(node IN graph.nodes | [ID(node), node.id, LABELS(node), node.label, node.risk, node.country]) AS nodes
   `
 } else {
-  QUERY += `RETURN size(graph.nodes) AS count`
+  QUERY += `
+    WITH project([a, b, c, d, e], r1s + r2s + r3s + r4s) AS graph
+    RETURN size(graph.nodes) AS count
+  `
 }
 
 const queryRunner = async () => {
